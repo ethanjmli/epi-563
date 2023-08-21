@@ -1,0 +1,35 @@
+---
+title: "latex test"
+author: "K. Labgold & P. Dunlap"
+date: "August 29, 2019"
+output:
+  pdf_document: default
+  html_document: null
+  highlight: pygments
+  theme: cosmo
+---
+
+To run this test, click "Knit" on the top left. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyverse)
+library(rio)
+```
+
+## Create Data
+```{r }
+x <- data.frame("SN" = 1:5, "Age" = c(21,15, 20, 30, 31), "Name" = c("John","Dora", "Joe", "Denise", "Jamie"))
+
+plot(x$Age)
+```
+
+## Types of tests
+Let's test some other stuff.
+```{r}
+#subset to only first obs (since characteristics only taken at baseline)
+x2 <- x%>%
+         mutate(random = SN + Age)
+```
