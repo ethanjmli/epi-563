@@ -36,6 +36,8 @@ table(GA.mvc.data.rural$rural)
 
 GA.mvc.data %>% count(rural == "non-Rural")
 
+table(GA.mvc.data$rural)
+
 #102 counties are non-rural
 
 
@@ -47,6 +49,6 @@ st_crs(GA.mvc.data)
 
 ####Task 6####
 st_drivers()$name
-length(st_drivers()$name)
+grep("ESRI",st_drivers()$long_name,ignore.case=T)
 
 #71 formats
