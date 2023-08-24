@@ -11,3 +11,10 @@
 # install.packages(c('tmap', 'tmaptools')) 
 # install.packages(c('spdep', 'CARBayes', 'sparr', 'spatialreg',  'DCluster', 'SpatialEpi', 'smerc'))
 # install.packages(c('GWmodel', 'spgwr') )
+
+
+library(tidyverse)
+library(sf)
+library(here)
+
+GA.mvc <- st_as_sf(here::here("Data","ga_mvc.gpkg"))
