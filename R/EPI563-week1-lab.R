@@ -98,7 +98,7 @@ tm_layout(legend.outside=T,
           title = "COVID Case Fatality Rate\nby County, Georgia",
           frame=F)
 
-tmap_save(GA.covid.cfr.map,"Week 1 Deliverable Map.png")
+tmap_save(GA.covid.cfr.map, here::here("Documents","Week 1 Documents","Week 1 Deliverable Map.png"))
   
 
 GA.cfr.median <- quantile(GA.covid.data.aea$cfr,probs=.5)
