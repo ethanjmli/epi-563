@@ -9,12 +9,18 @@ GA.mvc.data <- st_read(here::here("Data","Week 1 Data","ga_mvc.gpkg"))
 GA.trauma.data <- st_read(here::here("Data","Week 1 Data","trauma_centers.gpkg"))
 
 head(GA.hwy.data)
+names(GA.hwy.data)
+dim(GA.hwy.data)
+summary(GA.hwy.data)
+class(GA.hwy.data)
+
 head(GA.mvc.data)
 head(GA.trauma.data)
 
+st_crs(GA.hwy.data)$srid #NA
 st_crs(GA.hwy.data) #4326
-st_crs(GA.mvc.data) #4326
-st_crs(GA.trauma.data) #4269
+st_crs(GA.mvc.data)$srid #4326
+st_crs(GA.trauma.data)$srid #4269
 
 GA.mvc.data.aea <- st_transform(GA.mvc.data,5070)
 GA.hwy.data.aea <-st_transform(GA.hwy.data,5070)
@@ -78,7 +84,9 @@ tmap_arrange(MVCRATE_05.map,MVCRATE_17.map)
 ####Week 1 Deliverable####
 GA.covid.data <- st_read(here::here("Data","Week 1 Data","covid-ga.gpkg"))
 head(GA.covid.data)
-st_crs(GA.covid.data) #4269, unprojected
+summary(GA.covid.data)
+st_crs(GA.covid.data) #4269, NAD83, projected
+st_crs(GA.covid.data)$srid
 
 GA.covid.data.aea <- st_transform(GA.covid.data,5070) #Reproject covid data to AEA
 GA.covid.data.aea <- GA.covid.data.aea %>% mutate(cfr = deaths/cases)
