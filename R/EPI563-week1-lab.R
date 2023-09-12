@@ -87,6 +87,7 @@ head(GA.covid.data)
 summary(GA.covid.data)
 st_crs(GA.covid.data) #4269, NAD83, projected
 st_crs(GA.covid.data)$srid
+st_crs(GA.covid.data)$proj4string
 
 GA.covid.data.aea <- st_transform(GA.covid.data,5070) #Reproject covid data to AEA
 GA.covid.data.aea <- GA.covid.data.aea %>% mutate(cfr = deaths/cases)

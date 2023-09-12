@@ -1,0 +1,245 @@
+---
+title: "EPI563-week2-lab"
+author: "Ethan Li"
+date: "2023-09-06"
+output: html_document
+---
+Get packages
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(tmap)
+library(tigris)
+```
+
+Get Mortality Data
+```{r}
+mortality.data <- read.table(here::here("Data","Week 2 Data","Underlying Cause of Death, 1999-2020 No Notes.txt"),
+                                        sep='\t',
+                                        header = T,
+                                        na.strings = c("Missing","Suppressed"),
+                                        stringsAsFactors=F)
+
+dim(mortality.data)
+summary(mortality.data)
+head(mortality.data)
+
+mortality.data.nonastrings <- read.table(here::here("Data","Week 2 Data","Underlying Cause of Death, 1999-2020 No Notes.txt"),
+                                        sep='\t',
+                                        header = T,
+                                        #na.strings = c("Missing","Suppressed"),
+                                        stringsAsFactors=F)
+```
+
+Clean and prepare mortality data
+```{r}
+mortality.data.clean <- mortality.data %>% mutate(crude_rate = Deaths/Population*100000,
+                                             FIPS = sprintf('%05d', County.Code)) %>%
+                                      select(County,FIPS,Deaths,Population,crude_rate)
+summary(mortality.data.clean)
+dim(mortality.data.clean)
+head(mortality.data.clean)
+sum(is.na(mortality.data$Deaths))
+sum(is.na(mortality.data.clean$Deaths))
+sum(is.na(mortality.data$Deaths)) == sum(is.na(mortality.data.clean$Deaths))
+which(is.na(mortality.data$Deaths))
+mortality.data[which(is.na(mortality.data$Deaths)),"County"]
+```
+
+Getting Attribute Data from the US Census
+```{r}
+all_vars <- load_variables(year = 2020,dataset = 'acs5',cache=T)
+
+names(all_vars)
+head(all_vars)
+view(all_vars)
+
+all_vars.noinsurance <- all_vars %>%
+  filter(stringr::str_detect(name,"B27001"))%>%
+  filter(stringr::str_detect(label,"No health insurance"))
+
+all_vars.noinsurance.varnames <- all_vars.noinsurance$name
+all_vars.noinsurance.varnames <- c("B27001_001",all_vars.noinsurance.varnames)
+
+insurance_status <- get_acs(geography = "county",
+                            variables = all_vars.noinsurance.varnames,
+                            year = 2020,
+                            survey = 'acs5') %>%
+                    select(-moe)
+
+insurance_status.denom <- insurance_status %>%
+  filter(variable == 'B27001_001') %>%
+  rename(TOTPOP = estimate) %>%
+  select(-variable)
+
+insurance_status.num <- insurance_status %>%
+  filter(variable != "B27001_001") %>%
+  group_by(GEOID) %>%
+  summarise(uninsured = sum(estimate))
+
+insurance_status.uninsured <- insurance_status.denom %>%
+  left_join(insurance_status.num,by="GEOID") %>%
+  mutate(uninsured_prev = uninsured/TOTPOP) %>%
+  select(GEOID,uninsured,TOTPOP,uninsured_prev)
+
+```
+
+Get Geography Data
+```{r}
+options(tigris_use_cache=T)
+
+us <- tigris::counties(cb = T, resolution='5m',
+                       class='sf',
+                       year=2020) %>%
+  st_transform(5070)
+
+dim(us)
+head(us)
+
+plot(st_geometry(us))
+
+us <- us %>%
+  filter(!(STATEFP %in% c('02', '15', '66', '60', '78', '72', '69'))) %>%
+  select(GEOID, STATEFP, COUNTYFP, NAME)
+
+plot(st_geometry(us))
+
+
+```
+
+Merging Attributes and Geography
+```{r}
+us.mortality.uninsured <- us %>%
+  left_join(mortality.data.clean,by=c('GEOID'='FIPS'))%>%
+  left_join(insurance_status.uninsured,by='GEOID')
+
+dim(us.mortality.uninsured)
+head(us.mortality.uninsured)
+summary(us.mortality.uninsured)
+
+us.mortality.uninsured[which(is.na(us.mortality.uninsured$Deaths)),]
+us.mortality.uninsured[which(is.na(us.mortality.uninsured$Population)),]
+
+mortality.data.clean$FIPS[mortality.data.clean$FIPS=='46113'] <- '46102'
+
+us.mortality.uninsured <- us %>%
+  left_join(mortality.data.clean,by=c('GEOID'='FIPS'))%>%
+  left_join(insurance_status.uninsured,by='GEOID')
+
+summary(us.mortality.uninsured)
+us.mortality.uninsured[which(is.na(us.mortality.uninsured$Population)),]
+```
+
+Mapping Mortality and Uninsurance Prevalence
+```{r}
+t1 <- tm_shape(us.mortality.uninsured) +
+        tm_fill('crude_rate',
+                style = 'quantile',
+                palette = 'BuPu',
+                title = 'Rate per 100,000 py') +
+        tm_borders(alpha = 0.2) + # alpha controls transparency of border lines
+        tm_credits('Source: CDC Wonder',
+                position = c('RIGHT', 'BOTTOM')) +
+        tm_layout(main.title = 'All-cause mortality rate, 2020',
+                bg.color = 'grey85')
+
+t2 <- tm_shape(us.mortality.uninsured) +
+        tm_fill('uninsured_prev',
+                style = 'quantile',
+                palette = 'YlOrRd',
+                title = '% Uninsured',
+                legend.format = list(fun=function(x) paste0(formatC(x * 100,
+                digits=1,
+                format="f"), "%"))) +
+        tm_borders(alpha = 0.2) +
+        tm_credits('Source: American Community Survey',
+                position = c('RIGHT', 'BOTTOM')) +
+        tm_layout(main.title = 'Uninsured Prevalence, 2016-2020',
+                bg.color = 'grey85')
+tmap_arrange(t1, t2, ncol = 1)
+```
+
+Up-aggregating Data
+```{r}
+us.mortality.uninsured.state <- us.mortality.uninsured %>%
+  group_by(STATEFP) %>%
+  summarise(mortality_num = sum(Deaths,na.rm=T),
+            mortality_denom = sum(Population,na.rm=T),
+            insurance_num = sum(uninsured,na.rm=T),
+            insurance_denom = sum(TOTPOP,na.rm=T))%>%
+  mutate(mortality_rate = mortality_num/mortality_denom * 1e+05,
+         uninsured_prev = insurance_num/insurance_denom * 100)
+  
+
+```
+
+
+Lab Deliverable
+```{r}
+mortality.data[which(is.na(mortality.data$Deaths)),"County"] #30 Counties had missing death counts
+
+#To reduce data suppression, you could up-aggregate the data into larger geographic units
+
+all_vars.B17020 <- all_vars %>%
+  filter(stringr::str_detect(name,"B17020"))
+
+all_vars.B17020.varnames <- all_vars.B17020$name
+
+B17020 <- get_acs(geography = "county",
+                            variables = all_vars.B17020.varnames,
+                            year = 2020,
+                            survey = 'acs5') %>%
+                    select(-moe)
+
+#B17020: Poverty Status
+
+state1 <- tm_shape(us.mortality.uninsured.state) +
+        tm_fill('mortality_rate',
+                style = 'quantile',
+                palette = 'BuPu',
+                title = 'Rate per 100,000 py') +
+        tm_borders(alpha = 0.2) + # alpha controls transparency of border lines
+        tm_credits('Source: CDC Wonder',
+                position = c('RIGHT', 'BOTTOM')) +
+        tm_layout(main.title = 'All-cause mortality rate, 2020',
+                bg.color = 'grey85')
+
+state2 <- tm_shape(us.mortality.uninsured.state) +
+        tm_fill('uninsured_prev',
+                style = 'quantile',
+                palette = 'YlOrRd',
+                title = '% Uninsured',
+                #legend.format = list(fun=function(x) paste0(formatC(x * 100,
+                #digits=1,
+                #format="f"), "%"))
+                ) +
+        tm_borders(alpha = 0.2) +
+        tm_credits('Source: American Community Survey',
+                position = c('RIGHT', 'BOTTOM')) +
+        tm_layout(main.title = 'Uninsured Prevalence, 2016-2020',
+                bg.color = 'grey85')
+tmap_arrange(state1, state2, ncol = 1)
+
+```
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+#summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+#plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
