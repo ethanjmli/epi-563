@@ -1,0 +1,196 @@
+---
+title: "EPI563-Visual-Portfolio-1"
+author: "Ethan Li"
+date: "2023-09-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+```{r,message=F}
+library(sf)
+library(dplyr)
+library(tidyverse)
+library(here)
+library(tmap)
+library(readxl)
+library(RColorBrewer)
+```
+
+## Get Data
+```{r}
+georgia.tracts <- st_read(here::here("Data","My First Map","ga-tracts.gpkg")) #Read in tract data
+georgia.life <- read_xlsx(here::here("Data","My First Map","GA_A.XLSX")) #Read in life expectancy data
+```
+
+## Clean and Reproject Data
+I renamed all variables from life expectancy to match the variable names in the tract data
+in order to improve ease of reading and consistency across datasets. I also leftjoined the smaller 
+life expectancy data into the larger tract dataset in order to preserve data before reprojecting
+```{r}
+georgia.life <- georgia.life %>% 
+  rename(GEOID = `Tract ID`, STATEFP = STATE2KX,COUNTYFP = CNTY2KX,TRACTCE=TRACT2KX) #Rename variables to be consistent between datasets
+
+georgia.tracts.life <- georgia.tracts %>% #Left join life expectancy --> tract geometry 
+  left_join(georgia.life,by = "GEOID")
+
+georgia.tracts.life <- st_transform(georgia.tracts.life, crs = 5070) #Reproject merged data to CONUS Albers
+
+```
+
+## Map 1: Life Expectancy by Tract
+This map uses quantiles in order to place breakpoints for data symbolization. I opted
+to use a sequential color palette where the lowest LEs are symbolized as red and the highest
+as cream colored. I did this in order to better highlight the areas of most concern, i.e. the
+areas with lowest life expectancy.
+```{r}
+tm_shape(georgia.tracts.life)+
+  tm_fill(col = "e(0)",
+          palette= rev(brewer.pal(n=4,name="Reds")),
+          title = "Life Expectancy (years)",
+          breaks = quantile(georgia.tracts.life$`e(0)`,na.rm=T),
+          textNA = "No Data"
+  )+
+  tm_borders(lwd=0.1)+
+  tm_credits("Data Source: U.S. Small-area Life\nExpectancy Estimates Project",
+             position = c("LEFT","BOTTOM"))+
+  tm_scale_bar()+
+  tm_layout(frame=F,
+            main.title = "Life Expectancy in Georgia Census Tracts",
+            main.title.size = 1.2,
+            legend.outside=T,
+            inner.margins = c(0.1,0.02,0,0))
+```
+
+
+## Map 2: Life Expectancy by County
+This map also uses quantiles for symbolizing data breakpoints and uses the same
+color palette as the tracts map in order to ensure consistency and ease of comparison
+across different maps.
+```{r}
+georgia.county.life <- georgia.tracts.life %>% #Aggergate tracts into counties by grouping by county name and averaging by LE
+  group_by(CTY_NAME) %>%
+  summarize(`e(0)_avg` = mean(`e(0)`,na.rm=T))
+
+tm_shape(georgia.county.life)+
+  tm_fill(col = "e(0)_avg",
+          palette= rev(brewer.pal(n=4,name="Reds")),
+          title = "Life Expectancy (years)",
+          breaks = quantile(georgia.county.life$`e(0)_avg`,na.rm=T),
+          textNA = "No Data"
+          )+
+  tm_borders(lwd=0.3)+
+  tm_credits("Data Source: U.S. Small-area Life\nExpectancy Estimates Project",
+            position = c("LEFT","BOTTOM"))+
+  tm_scale_bar()+
+  tm_layout(frame=F,
+            main.title = "Life Expectancy in Georgia Counties",
+            main.title.size = 1.2,
+            legend.outside=T,
+            inner.margins = c(0.1,0.02,0,0))
+```
+
+## Summary Table Min/Max
+I extracted the maximum and minimum life expectancies by summarising both tract and
+county level data down to their maximum and minimum values. I added the variable geo_unit
+in order to keep track of which values corresponded to which type of geographic unit, then
+rowbound them in order to make it easier for me to visualize.
+```{r}
+georgia.county.life.minmax <- georgia.county.life %>%  #Get the maximum and minimum life expectancy among all counties
+  summarise(maximum_e0 = max(`e(0)_avg`,na.rm=T),
+            minimum_e0 = min(`e(0)_avg`,na.rm=T)) %>%
+  mutate(geo_unit = "County") %>%
+  st_drop_geometry()
+
+georgia.tracts.life.minmax <- georgia.tracts.life %>% #Get the max/min LE among all tracts
+  summarise(maximum_e0 = max(`e(0)`,na.rm=T),
+            minimum_e0 = min(`e(0)`,na.rm=T)) %>%
+  mutate(geo_unit = "Tract") %>%
+  st_drop_geometry()
+
+georgia.life.minmax <- rbind(georgia.county.life.minmax,georgia.tracts.life.minmax) #Rbind max/min datasets
+```
+
+Geography  | Maximum LE | Minimum LE
+:----------:|:----------:|:-----------:
+County    | 80.975   | 71.8
+Tract | 87.60 | 63.3
+
+
+## Summary Top 5/Bottom 5 Counties in Life Expectancy
+To extract both top and bottom five counties by life expectancy, I sorted the county
+level data by descending LE values, then sliced out both the first 5 and last 5 rows.
+I then turned the column containing LE values into a list and named each entry as the corresponding
+county. 
+```{r}
+georgia.life.topbot5 <- georgia.county.life %>% 
+  arrange(desc(`e(0)_avg`)) %>% #Arrange county life expectancies by descending life expectancy value
+  st_drop_geometry() %>%
+  slice(head(row_number(),5),tail(row_number(),5)) #Slice out top 5 and bottom 5 rows
+
+georgia.life.topbot5.list <- as.list(georgia.life.topbot5$`e(0)_avg`) #Create list of top/bottom 5 LE
+names(georgia.life.topbot5.list) <- georgia.life.topbot5$CTY_NAME #Assign county names to corresponding LE values
+georgia.life.topbot5.list #Display list
+```
+5 Highest/5 Lowest GA Counties by Life Expectancy
+
+Top 5
+
+Harris
+80.975 years
+
+Oconee
+80.83333 years
+
+Dooly
+79.93333 years
+
+Fayette
+79.775 years
+
+Forsyth
+79.7625 years
+
+
+Bottom 5
+
+Chattooga
+72.9 years
+
+Bacon
+72.83333 years
+
+Ware
+72.66667 years
+
+Clay
+72.2 years
+
+Warren
+71.8 years
+
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars, eval=FALSE,include=FALSE}
+#summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, eval=FALSE,include=FALSE,echo=FALSE}
+#plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
